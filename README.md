@@ -11,9 +11,9 @@ repo maintains a replacement cache we control ourselves.
 
 ## What gets built
 
-From `github:barontek/nix-cachyos-kernel/<rev>` (our fork of xddxdd's
-recipe) at the exact revision pinned in nixos-config, so the resulting store
-paths match the system 1:1 (verified via `outPath`):
+From `github:barontek/cachyos-kernel-cache/<rev>` — this repo — at the exact
+revision pinned in nixos-config, so the resulting store paths match the
+system 1:1 (verified via `outPath`):
 
 - the kernel and all its outputs (`out`, `dev`, `modules`),
 - `linux-config-*`, a reference of the kernel `dev` output that is needed when
@@ -22,6 +22,20 @@ paths match the system 1:1 (verified via `outPath`):
 NVIDIA / Tuxedo kernel modules are **not** built here (they depend on the whole
 nixos-config). After a kernel update, expect a short local rebuild of those
 (~15–40 min) unless this repo is extended to build them too.
+
+## Recipe
+
+The Nix recipe lives in this repo at the root (flake, `kernel-cachyos/`,
+`zfs-cachyos/`, `update.py`); it is vendored from
+[xddxdd/nix-cachyos-kernel] at `e61f03b6` (GPL-2.0, see `LICENSE`). The
+kernel, config, patch and ZFS pins are `kernel-cachyos/version.json` and
+`zfs-cachyos/version.json`.
+
+They are refreshed daily by the `Update kernel pins` workflow, which runs
+`nix run .#update-cachyos` (fetches the newest from the CachyOS repos and
+re-hashes) and commits the result — the same thing upstream's own automation
+did. To bump manually, run that command and commit. The recipe's own nixpkgs
+pin is deliberately left to manual updates.
 
 ## One-time setup
 
@@ -55,13 +69,11 @@ nixos-config). After a kernel update, expect a short local rebuild of those
 
 ## Kernel updates
 
-The kernel input points at our fork (`barontek/nix-cachyos-kernel`); sync it
-first to pick up upstream recipe bumps, or skip that line to stay put.
+The pins refresh automatically (see "Recipe"), so an update is just:
 
 ```bash
-gh repo sync barontek/nix-cachyos-kernel  # upstream recipe bump (optional)
 cd ~/nixos-config
-nix flake update nix-cachyos-kernel       # relock the kernel input
+nix flake update nix-cachyos-kernel   # relock the kernel input
 # ... commit & push the config as usual ...
 cd ~/cachyos-kernel-cache
 ./build.sh                            # dispatch CI for the new revision
@@ -82,7 +94,7 @@ If CI fails or exceeds the 6 h job limit, build once locally and push:
 nix run nixpkgs#cachix -- authtoken <TOKEN>   # once per machine
 rev=$(sed -n '/"nix-cachyos-kernel"/,$p' ~/nixos-config/flake.lock | grep -m1 '"rev"' | cut -d'"' -f4)
 paths=$(nix build --no-link --print-out-paths \
-  "github:barontek/nix-cachyos-kernel/$rev#legacyPackages.x86_64-linux.linux-cachyos-latest-x86_64-v3^*")
+  "github:barontek/cachyos-kernel-cache/$rev#legacyPackages.x86_64-linux.linux-cachyos-latest-x86_64-v3^*")
 nix run nixpkgs#cachix -- push barontek $paths
 ```
 

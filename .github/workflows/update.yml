@@ -1,0 +1,32 @@
+name: Update kernel pins
+
+# Refreshes the kernel / config / patch / ZFS pins from the CachyOS repos by
+# running the vendored update.py (`nix run .#update-cachyos`) and committing
+# the result. Only the pins move; the recipe's nixpkgs pin stays deliberate.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '37 17 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-pins
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Refresh pins
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+      - name: Run update-cachyos
+        run: nix run .#update-cachyos
+      - name: Commit updated pins
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: Auto update kernel pins

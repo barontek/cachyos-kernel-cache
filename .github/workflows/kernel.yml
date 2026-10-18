@@ -1,6 +1,6 @@
 name: Kernel
 
-# Builds a CachyOS kernel revision from xddxdd/nix-cachyos-kernel and pushes it
+# Builds a CachyOS kernel revision from barontek/nix-cachyos-kernel and pushes it
 # to the personal Cachix cache, so nixos-rebuild substitutes the kernel instead
 # of compiling it locally (3-5 h on a laptop).
 #
@@ -52,7 +52,7 @@ jobs:
         run: |
           set -eo pipefail
 
-          kernel="github:xddxdd/nix-cachyos-kernel/${{ inputs.rev }}#legacyPackages.x86_64-linux.${{ inputs.variant }}"
+          kernel="github:barontek/nix-cachyos-kernel/${{ inputs.rev }}#legacyPackages.x86_64-linux.${{ inputs.variant }}"
 
           # shellcheck disable=SC2016 # Nix expression, not shell interpolation
           if ! raw=$(nix eval --raw --apply 'k: builtins.concatStringsSep "\n" (map (o: k.${o}) k.outputs)' "$kernel"); then

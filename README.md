@@ -11,9 +11,9 @@ repo maintains a replacement cache we control ourselves.
 
 ## What gets built
 
-From `github:xddxdd/nix-cachyos-kernel/<rev>` at the exact revision pinned in
-nixos-config, so the resulting store paths match the system 1:1 (verified via
-`outPath`):
+From `github:barontek/nix-cachyos-kernel/<rev>` (our fork of xddxdd's
+recipe) at the exact revision pinned in nixos-config, so the resulting store
+paths match the system 1:1 (verified via `outPath`):
 
 - the kernel and all its outputs (`out`, `dev`, `modules`),
 - `linux-config-*`, a reference of the kernel `dev` output that is needed when
@@ -55,9 +55,13 @@ nixos-config). After a kernel update, expect a short local rebuild of those
 
 ## Kernel updates
 
+The kernel input points at our fork (`barontek/nix-cachyos-kernel`); sync it
+first to pick up upstream recipe bumps, or skip that line to stay put.
+
 ```bash
+gh repo sync barontek/nix-cachyos-kernel  # upstream recipe bump (optional)
 cd ~/nixos-config
-nix flake update nix-cachyos-kernel   # bump the kernel input
+nix flake update nix-cachyos-kernel       # relock the kernel input
 # ... commit & push the config as usual ...
 cd ~/cachyos-kernel-cache
 ./build.sh                            # dispatch CI for the new revision
@@ -78,7 +82,7 @@ If CI fails or exceeds the 6 h job limit, build once locally and push:
 nix run nixpkgs#cachix -- authtoken <TOKEN>   # once per machine
 rev=$(sed -n '/"nix-cachyos-kernel"/,$p' ~/nixos-config/flake.lock | grep -m1 '"rev"' | cut -d'"' -f4)
 paths=$(nix build --no-link --print-out-paths \
-  "github:xddxdd/nix-cachyos-kernel/$rev#legacyPackages.x86_64-linux.linux-cachyos-latest-x86_64-v3^*")
+  "github:barontek/nix-cachyos-kernel/$rev#legacyPackages.x86_64-linux.linux-cachyos-latest-x86_64-v3^*")
 nix run nixpkgs#cachix -- push barontek $paths
 ```
 

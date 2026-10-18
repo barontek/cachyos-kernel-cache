@@ -1,0 +1,78 @@
+name: Kernel
+
+# Builds a CachyOS kernel revision from xddxdd/nix-cachyos-kernel and pushes it
+# to the personal Cachix cache, so nixos-rebuild substitutes the kernel instead
+# of compiling it locally (3-5 h on a laptop).
+#
+# Requires the repository secret CACHIX_AUTH_TOKEN (Cachix auth token with
+# write access to the cache). See README.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      rev:
+        description: nix-cachyos-kernel revision to build (40-char commit hash)
+        required: true
+      variant:
+        description: Kernel variant
+        required: true
+        default: linux-cachyos-latest-x86_64-v3
+
+permissions:
+  contents: read
+
+env:
+  CACHE_NAME: barontek
+
+concurrency:
+  group: kernel-cache
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and push kernel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo apt-get clean
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: barontek
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Build and push
+        run: |
+          kernel="github:xddxdd/nix-cachyos-kernel/${{ inputs.rev }}#legacyPackages.x86_64-linux.linuxPackages-${{ inputs.variant }}.kernel"
+
+          # shellcheck disable=SC2016 # Nix expression, not shell interpolation
+          mapfile -t outputs < <(nix eval --raw --apply 'k: builtins.concatStringsSep "\n" (map (o: k.${o}) k.outputs)' "$kernel")
+          cached=true
+          for path in "${outputs[@]}"; do
+            h=${path##*/}
+            h=${h%%-*}
+            curl -sf --max-time 30 "https://$CACHE_NAME.cachix.org/$h.narinfo" >/dev/null || cached=false
+          done
+          if [ "$cached" = true ]; then
+            echo "All kernel outputs are already cached, nothing to do:"
+            printf '  %s\n' "${outputs[@]}"
+            exit 0
+          fi
+
+          nix build --no-link --print-out-paths "$kernel^*" | tee "$RUNNER_TEMP/paths.txt"
+
+          # linux-config-* is a reference of the kernel dev output, needed when
+          # building out-of-tree kernel modules (NVIDIA, Tuxedo) against this
+          # kernel, and is not available from cache.nixos.org.
+          # shellcheck disable=SC2016 # Nix expression, not shell interpolation
+          dev=$(nix eval --raw --apply 'k: k.dev' "$kernel")
+          mapfile -t extra < <(nix-store -q --references "$dev" | grep -- '-linux-config-' || true)
+          mapfile -t paths < "$RUNNER_TEMP/paths.txt"
+
+          cachix push "$CACHE_NAME" "${paths[@]}" "${extra[@]}"

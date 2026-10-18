@@ -78,7 +78,7 @@ If CI fails or exceeds the 6 h job limit, build once locally and push:
 nix run nixpkgs#cachix -- authtoken <TOKEN>   # once per machine
 rev=$(sed -n '/"nix-cachyos-kernel"/,$p' ~/nixos-config/flake.lock | grep -m1 '"rev"' | cut -d'"' -f4)
 paths=$(nix build --no-link --print-out-paths \
-  "github:xddxdd/nix-cachyos-kernel/$rev#legacyPackages.x86_64-linux.linuxPackages-linux-cachyos-latest-x86_64-v3.kernel^*")
+  "github:xddxdd/nix-cachyos-kernel/$rev#legacyPackages.x86_64-linux.linux-cachyos-latest-x86_64-v3^*")
 nix run nixpkgs#cachix -- push barontek $paths
 ```
 

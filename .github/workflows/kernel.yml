@@ -14,7 +14,7 @@ on:
         description: nix-cachyos-kernel revision to build (40-char commit hash)
         required: true
       variant:
-        description: Kernel variant
+        description: Kernel attribute from legacyPackages
         required: true
         default: linux-cachyos-latest-x86_64-v3
 
@@ -50,23 +50,44 @@ jobs:
 
       - name: Build and push
         run: |
-          kernel="github:xddxdd/nix-cachyos-kernel/${{ inputs.rev }}#legacyPackages.x86_64-linux.linuxPackages-${{ inputs.variant }}.kernel"
+          set -eo pipefail
+
+          kernel="github:xddxdd/nix-cachyos-kernel/${{ inputs.rev }}#legacyPackages.x86_64-linux.${{ inputs.variant }}"
 
           # shellcheck disable=SC2016 # Nix expression, not shell interpolation
-          mapfile -t outputs < <(nix eval --raw --apply 'k: builtins.concatStringsSep "\n" (map (o: k.${o}) k.outputs)' "$kernel")
+          if ! raw=$(nix eval --raw --apply 'k: builtins.concatStringsSep "\n" (map (o: k.${o}) k.outputs)' "$kernel"); then
+            echo "error: failed to evaluate the kernel outputs" >&2
+            exit 1
+          fi
+          mapfile -t outputs <<< "$raw"
+          if [ "${#outputs[@]}" -eq 0 ]; then
+            echo "error: kernel evaluation returned no outputs" >&2
+            exit 1
+          fi
+          echo "kernel outputs:"
+          printf '  %s\n' "${outputs[@]}"
+
           cached=true
           for path in "${outputs[@]}"; do
             h=${path##*/}
             h=${h%%-*}
-            curl -sf --max-time 30 "https://$CACHE_NAME.cachix.org/$h.narinfo" >/dev/null || cached=false
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "https://$CACHE_NAME.cachix.org/$h.narinfo" || true)
+            if [ "$code" != "200" ]; then
+              cached=false
+            fi
           done
           if [ "$cached" = true ]; then
-            echo "All kernel outputs are already cached, nothing to do:"
-            printf '  %s\n' "${outputs[@]}"
+            echo "all kernel outputs are already cached, nothing to do"
             exit 0
           fi
 
           nix build --no-link --print-out-paths "$kernel^*" | tee "$RUNNER_TEMP/paths.txt"
+
+          mapfile -t paths < "$RUNNER_TEMP/paths.txt"
+          if [ "${#paths[@]}" -eq 0 ]; then
+            echo "error: build produced no paths" >&2
+            exit 1
+          fi
 
           # linux-config-* is a reference of the kernel dev output, needed when
           # building out-of-tree kernel modules (NVIDIA, Tuxedo) against this
@@ -74,6 +95,5 @@ jobs:
           # shellcheck disable=SC2016 # Nix expression, not shell interpolation
           dev=$(nix eval --raw --apply 'k: k.dev' "$kernel")
           mapfile -t extra < <(nix-store -q --references "$dev" | grep -- '-linux-config-' || true)
-          mapfile -t paths < "$RUNNER_TEMP/paths.txt"
 
           cachix push "$CACHE_NAME" "${paths[@]}" "${extra[@]}"

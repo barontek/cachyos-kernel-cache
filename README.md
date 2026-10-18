@@ -67,35 +67,60 @@ pin is deliberately left to manual updates.
    };
    ```
 
+5. Create a write-enabled deploy key on nixos-config so successful builds can
+   move the kernel pin there, and store it as `CONFIG_DEPLOY_KEY`:
+
+   ```bash
+   ssh-keygen -t ed25519 -N '' -C 'cachyos-kernel-cache relock' -f /tmp/relock-key
+   gh repo deploy-key add /tmp/relock-key.pub --repo barontek/nixos-config \
+     --title 'cachyos-kernel-cache relock' --allow-write
+   gh secret set CONFIG_DEPLOY_KEY --repo barontek/cachyos-kernel-cache \
+     < /tmp/relock-key
+   rm /tmp/relock-key /tmp/relock-key.pub
+   ```
+
 ## Kernel updates
 
-The pins refresh automatically (see "Recipe"), so an update is just:
+Nothing to do — the chain runs itself:
+
+1. `Update kernel pins` refreshes the pins daily; when they changed, it
+   dispatches the kernel build for the new revision.
+2. When that build succeeds, the `Kernel` workflow relocks `nixos-config`'s
+   `flake.lock` to the built revision (an `auto update kernel pin` commit), so
+   the config only ever points at revisions whose kernel is already cached.
+3. Whenever you want, `sudo nixos-rebuild switch` (and reboot to run it) —
+   always a cache hit, no local kernel compile.
+
+If the update, the build or the relock fails you get a GitHub failure email and
+nothing moves: the config stays at the previous, still-cached revision. To
+retry a failed build by hand:
 
 ```bash
-cd ~/nixos-config
-nix flake update nix-cachyos-kernel   # relock the kernel input
-# ... commit & push the config as usual ...
 cd ~/cachyos-kernel-cache
-./build.sh                            # dispatch CI for the new revision
+./build.sh   # dispatch the build for the current recipe revision
 ```
-
-Wait for the workflow to go green (~3–5 h; reruns are cheap, an already cached
-kernel is skipped), then `sudo nixos-rebuild switch` — the kernel comes from
-the cache. If you rebuild before CI finishes, Nix compiles the kernel locally.
 
 GitHub Actions is free for this repo (public, standard runners); the cache is
 public, effectively serving kernels to anyone running the same revision.
 
 ## Fallback
 
-If CI fails or exceeds the 6 h job limit, build once locally and push:
+If the automated build fails, build once locally and push:
 
 ```bash
 nix run nixpkgs#cachix -- authtoken <TOKEN>   # once per machine
-rev=$(sed -n '/"nix-cachyos-kernel"/,$p' ~/nixos-config/flake.lock | grep -m1 '"rev"' | cut -d'"' -f4)
+rev=$(gh api repos/barontek/cachyos-kernel-cache/commits/main --jq .sha)
 paths=$(nix build --no-link --print-out-paths \
   "github:barontek/cachyos-kernel-cache/$rev#legacyPackages.x86_64-linux.linux-cachyos-latest-x86_64-v3^*")
 nix run nixpkgs#cachix -- push barontek $paths
+```
+
+Then relock the config by hand (what the workflow would have done):
+
+```bash
+cd ~/nixos-config
+nix flake update nix-cachyos-kernel
+# ... commit & push the config as usual ...
 ```
 
 On the machine where `generate-keypair` was run, pushes are signed

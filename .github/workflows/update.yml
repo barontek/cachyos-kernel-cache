@@ -2,7 +2,9 @@ name: Update kernel pins
 
 # Refreshes the kernel / config / patch / ZFS pins from the CachyOS repos by
 # running the vendored update.py (`nix run .#update-cachyos`) and committing
-# the result. Only the pins move; the recipe's nixpkgs pin stays deliberate.
+# the result; when the pins changed, it also dispatches the kernel build for
+# the new revision. Only the pins move; the recipe's nixpkgs pin stays
+# deliberate.
 
 on:
   workflow_dispatch:
@@ -10,6 +12,7 @@ on:
     - cron: '37 17 * * *'
 
 permissions:
+  actions: write
   contents: write
 
 concurrency:
@@ -27,6 +30,15 @@ jobs:
       - name: Run update-cachyos
         run: nix run .#update-cachyos
       - name: Commit updated pins
+        id: commit
         uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: Auto update kernel pins
+
+      - name: Dispatch kernel build
+        if: steps.commit.outputs.changes_detected == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run kernel.yml --repo barontek/cachyos-kernel-cache \
+            -f rev="$(git rev-parse HEAD)" -f variant=linux-cachyos-latest-x86_64-v3

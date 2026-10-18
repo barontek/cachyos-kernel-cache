@@ -2,10 +2,13 @@ name: Kernel
 
 # Builds a CachyOS kernel revision from the recipe in this repo and pushes it
 # to the personal Cachix cache, so nixos-rebuild substitutes the kernel instead
-# of compiling it locally (3-5 h on a laptop).
+# of compiling it locally (3-5 h on a laptop). On success it relocks
+# barontek/nixos-config to this revision, so the config only ever points at
+# revisions whose kernel is already cached.
 #
-# Requires the repository secret CACHIX_AUTH_TOKEN (Cachix auth token with
-# write access to the cache). See README.md.
+# Requires the repository secrets CACHIX_AUTH_TOKEN (write access to the cache),
+# CACHIX_SIGNING_KEY (cache signing key) and CONFIG_DEPLOY_KEY (write-enabled
+# deploy key on barontek/nixos-config). See README.md.
 
 on:
   workflow_dispatch:
@@ -97,3 +100,41 @@ jobs:
           mapfile -t extra < <(nix-store -q --references "$dev" | grep -- '-linux-config-' || true)
 
           cachix push "$CACHE_NAME" "${paths[@]}" "${extra[@]}"
+
+      - name: Relock nixos-config to this revision
+        env:
+          DEPLOY_KEY: ${{ secrets.CONFIG_DEPLOY_KEY }}
+          BUILT_REV: ${{ inputs.rev }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/relock_key
+          chmod 600 ~/.ssh/relock_key
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/relock_key -o IdentitiesOnly=yes -o BatchMode=yes"
+
+          git clone --quiet git@github.com:barontek/nixos-config.git config
+          cd config
+          nix flake update nix-cachyos-kernel
+
+          rev=$(sed -n '/"nix-cachyos-kernel"/,$p' flake.lock | grep -m1 '"rev"' | cut -d'"' -f4)
+          if [ "$rev" != "$BUILT_REV" ]; then
+            echo "recipe HEAD moved past the built revision (built $BUILT_REV, HEAD $rev); skipping relock"
+            exit 0
+          fi
+          if git diff --quiet flake.lock; then
+            echo "config is already pinned to $BUILT_REV"
+            exit 0
+          fi
+          changed=$(git diff --name-only | tr '\n' ' ')
+          if [ "$changed" != "flake.lock " ]; then
+            echo "error: unexpected changes in the config clone: $changed" >&2
+            exit 1
+          fi
+
+          git config user.name "cachyos-kernel-cache"
+          git config user.email "cachyos-kernel-cache@users.noreply.github.com"
+          git add flake.lock
+          git commit -m "auto update kernel pin"
+          git push origin master
+          echo "nixos-config is now pinned to $BUILT_REV"

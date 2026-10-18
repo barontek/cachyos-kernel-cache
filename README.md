@@ -25,21 +25,31 @@ nixos-config). After a kernel update, expect a short local rebuild of those
 
 ## One-time setup
 
-1. Create a public cache named `barontek` on [app.cachix.org](https://app.cachix.org)
-   (free tier, 5 GB).
-2. Create an auth token with write access to that cache, then add it to this
-   repo as the `CACHIX_AUTH_TOKEN` secret:
+1. Create a public, **self-signed** cache named `barontek` on
+   [app.cachix.org](https://app.cachix.org) (free tier, 5 GB). Self-signed
+   means the signing key never leaves machines you control: neither Cachix nor
+   a leaked auth token alone can publish paths your systems would trust.
+2. Create an auth token with write access to the cache, store it locally and
+   generate the signing keypair (kept in `~/.config/cachix/cachix.dhall`):
+
+   ```bash
+   nix run nixpkgs#cachix -- authtoken --stdin   # paste token, then Ctrl-D
+   nix run nixpkgs#cachix -- generate-keypair barontek
+   ```
+
+3. Store both secrets in this repo:
 
    ```bash
    gh secret set CACHIX_AUTH_TOKEN --repo barontek/cachyos-kernel-cache
+   gh secret set CACHIX_SIGNING_KEY --repo barontek/cachyos-kernel-cache
    ```
 
-3. In nixos-config, replace the dead `lantian` substituter with this cache:
+4. In nixos-config, replace the dead `lantian` substituter with this cache:
 
    ```nix
    nix.settings = {
      substituters = [ ... "https://barontek.cachix.org" ];
-     trusted-public-keys = [ ... "barontek.cachix.org-1:<public key from Cachix>" ];
+     trusted-public-keys = [ ... "barontek.cachix.org-1:<public key of the generated keypair>" ];
    };
    ```
 
@@ -71,6 +81,10 @@ paths=$(nix build --no-link --print-out-paths \
   "github:xddxdd/nix-cachyos-kernel/$rev#legacyPackages.x86_64-linux.linuxPackages-linux-cachyos-latest-x86_64-v3.kernel^*")
 nix run nixpkgs#cachix -- push barontek $paths
 ```
+
+On the machine where `generate-keypair` was run, pushes are signed
+automatically; on any other machine the signing key must be present in the
+local Cachix config too.
 
 [xddxdd/nix-cachyos-kernel]: https://github.com/xddxdd/nix-cachyos-kernel
 [xddxdd/nix-cachyos-kernel#110]: https://github.com/xddxdd/nix-cachyos-kernel/issues/110

@@ -47,7 +47,7 @@
                           pkgs.nix-prefetch-git
                         ];
                         text = ''
-                          python3 ${script}
+                          python3 ${script} "$@"
                         '';
                       };
                     in
@@ -56,6 +56,7 @@
               in
               {
                 update-cachyos = mkApp "update-cachyos" ./update.py;
+                purge-cache = mkApp "purge-cache" ./purge_cache.py;
               };
 
             # Allow build unfree modules such as nvidia_x11

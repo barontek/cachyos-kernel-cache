@@ -103,6 +103,30 @@ cd ~/cachyos-kernel-cache
 GitHub Actions is free for this repo (public, standard runners); the cache is
 public, effectively serving kernels to anyone running the same revision.
 
+## Purging old kernels
+
+The Cachix CLI has no delete command, but the dashboard deletes individual
+store paths through `DELETE /api/v1/cache/<cache>/<hash>.narinfo`. The
+`purge-cache` app uses that endpoint:
+
+```bash
+nix run .#purge-cache              # dry run: show what would be deleted
+nix run .#purge-cache -- --apply   # actually delete
+```
+
+The `Kernel` workflow runs the purge automatically after a successful build
+and relock, keeping the freshly built revision and whatever revision
+`nixos-config` currently has committed. For manual runs it keeps the kernel
+outputs of the revision pinned in `~/nixos-config/flake.lock` and of this
+repository's `origin/main`, and deletes other kernel-related paths. Use
+`--keep-rev <rev>` to protect additional or different revisions. The auth
+token is read from `CACHIX_AUTH_TOKEN` or the local
+`~/.config/cachix/cachix.dhall`.
+
+The cache is dedicated to kernels, so `--all` is available to remove every
+path that is not part of the kept closures (for example the old
+`cachix-push-test` path), not just the kernel artifacts.
+
 ## Fallback
 
 If the automated build fails, build once locally and push:

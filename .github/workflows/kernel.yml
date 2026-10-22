@@ -138,3 +138,30 @@ jobs:
           git commit -m "auto update kernel pin"
           git push origin master
           echo "nixos-config is now pinned to $BUILT_REV"
+
+      - name: Purge old kernel paths
+        # Cleaning the cache is best-effort: the kernel has already been pushed
+        # and the config relocked, so a cleanup failure must not mark the build
+        # as failed.
+        continue-on-error: true
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          args=(--apply --keep-rev "${{ inputs.rev }}")
+
+          # Keep whichever revision nixos-config actually has committed.  If
+          # relocking was skipped, flake.lock in the clone was updated in
+          # memory but not pushed, so HEAD still has the old (still needed)
+          # revision.
+          if [ -d config/.git ]; then
+            pinned=$(git -C config show HEAD:flake.lock \
+              | sed -n '/"nix-cachyos-kernel"/,$p' \
+              | grep -m1 '"rev"' | cut -d'"' -f4)
+            if [ -n "$pinned" ]; then
+              args+=(--keep-rev "$pinned")
+            fi
+          fi
+
+          nix run .#purge-cache -- "${args[@]}"

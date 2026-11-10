@@ -37,6 +37,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 355
     steps:
+      - uses: actions/checkout@v7
+
       - name: Free up disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
@@ -140,10 +142,10 @@ jobs:
           echo "nixos-config is now pinned to $BUILT_REV"
 
       - name: Purge old kernel paths
-        # Cleaning the cache is best-effort: the kernel has already been pushed
-        # and the config relocked, so a cleanup failure must not mark the build
-        # as failed.
-        continue-on-error: true
+        # Deliberately not continue-on-error: the first version of this step
+        # failed silently for a week because the repository was never checked
+        # out.  A failure here should be visible even though the kernel itself
+        # is already built and relocked.
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
         run: |

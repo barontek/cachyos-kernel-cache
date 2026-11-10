@@ -158,9 +158,12 @@ jobs:
           # memory but not pushed, so HEAD still has the old (still needed)
           # revision.
           if [ -d config/.git ]; then
+            # Avoid `grep -m1` here: it exits early and the earlier sed gets
+            # SIGPIPE, which `set -o pipefail` turns into exit code 4.
             pinned=$(git -C config show HEAD:flake.lock \
               | sed -n '/"nix-cachyos-kernel"/,$p' \
-              | grep -m1 '"rev"' | cut -d'"' -f4)
+              | sed -n 's/.*"rev"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+              | sed -n '1p')
             if [ -n "$pinned" ]; then
               args+=(--keep-rev "$pinned")
             fi
